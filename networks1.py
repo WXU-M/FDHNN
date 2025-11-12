@@ -38,34 +38,17 @@ class HConstructor20(nn.Module):
         # self.linear_backbone.append(nn.Linear(hid_dim, hid_dim))
         self.linear_backbone.append(nn.Linear(num_classes, num_classes))
 
-    def _resize_output_layer(self, new_m):
-        if new_m == self.linear1.out_features:
-            return
-        old = self.linear1
-        in_f = old.in_features
-        out_f = new_m
-        device = next(old.parameters()).device
-        new_linear = nn.Linear(in_f, out_f).to(device)
-
-        # 拷贝重叠部分的权重和偏置
-        keep = min(old.out_features, out_f)
-        with torch.no_grad():
-            new_linear.weight[:keep, :] = old.weight[:keep, :]
-            new_linear.bias[:keep] = old.bias[:keep]
-        self.linear1 = new_linear
-
     def ajust_edges(self, s_level, args):
         if args.stage != 'train':
             return
-        new_m = self.num_edges
-        if s_level > args.up_bound:
-            new_m = self.num_edges + 1
-        elif s_level < args.low_bound:
-            new_m = max(self.num_edges - 1, args.min_num_edges)
 
-        if new_m != self.num_edges:
-            self.num_edges = new_m
-            self._resize_output_layer(new_m)
+        if s_level > args.up_bound:
+            self.num_edges = self.num_edges + 1
+        elif s_level < args.low_bound:
+            self.num_edges = self.num_edges - 1
+            self.num_edges = max(self.num_edges, args.min_num_edges)
+        else:
+            return
 
     def forward(self, edge_index, features,args):
         n_s = self.num_edges
@@ -134,28 +117,19 @@ class HConstructor20(nn.Module):
         all = self.linear1(all)
 
         # 6. 构造超图和超边邻接矩阵H
-        #H = torch.zeros(num_nodes, self.num_classes, device=all.device)
-        H = torch.zeros(num_nodes, n_s, device=all.device)
+        H = torch.zeros(num_nodes, self.num_classes, device=all.device)
         for i in range(self.t + 1):
             classes = all[i * num_nodes:(i + 1) * num_nodes].argmax(dim=1)
             H[torch.arange(num_nodes), classes] += 1
 
         # 7. 计算超边特征矩阵
-        hyperedge_features = torch.zeros(n_s, features.size(1), device=features.device)
-        for j in range(n_s):
+        hyperedge_features = torch.zeros(self.num_classes, features.size(1), device=features.device)
+        for j in range(self.num_classes):
             nodes_in_hyperedge = (H[:, j] > 0).nonzero(as_tuple=True)[0]
             if len(nodes_in_hyperedge) > 0:
                 hyperedge_features[j] = all_features2[nodes_in_hyperedge].sum(dim=0)
-
         dots = torch.einsum('ni,ij->nj', all_features, hyperedge_features.T) * self.scale
         #H = H.softmax(dim=0)
-
-        cc = H.ceil().abs()  # 二值化
-        de = cc.sum(dim=0)  # 每条超边的度
-        empty = (de == 0).sum()
-        s_level = 1 - empty.float() / n_s  # S_H = 1 - |E_empty|/|E|
-
-        self.ajust_edges(s_level.item(), args)
 
         return H, hyperedge_features, dots
 class HConstructor10(nn.Module):
@@ -172,34 +146,19 @@ class HConstructor10(nn.Module):
         self.gcn_backbone.append(GCNConv(num_classes, num_classes))
         self.linear1 = nn.Linear(num_classes, self.num_edges)
 
-    def _resize_output_layer(self, new_m):
-        if new_m == self.linear1.out_features:
-            return
-        old = self.linear1
-        in_f = old.in_features
-        out_f = new_m
-        device = next(old.parameters()).device
-        new_linear = nn.Linear(in_f, out_f).to(device)
 
-        # 拷贝重叠部分的权重和偏置
-        keep = min(old.out_features, out_f)
-        with torch.no_grad():
-            new_linear.weight[:keep, :] = old.weight[:keep, :]
-            new_linear.bias[:keep] = old.bias[:keep]
-        self.linear1 = new_linear
 
     def ajust_edges(self, s_level, args):
         if args.stage != 'train':
             return
-        new_m = self.num_edges
-        if s_level > args.up_bound:
-            new_m = self.num_edges + 1
-        elif s_level < args.low_bound:
-            new_m = max(self.num_edges - 1, args.min_num_edges)
 
-        if new_m != self.num_edges:
-            self.num_edges = new_m
-            self._resize_output_layer(new_m)
+        if s_level > args.up_bound:
+            self.num_edges = self.num_edges + 1
+        elif s_level < args.low_bound:
+            self.num_edges = self.num_edges - 1
+            self.num_edges = max(self.num_edges, args.min_num_edges)
+        else:
+            return
 
     def forward(self, edge_index, features, args):
         n_s = self.num_edges
@@ -256,21 +215,21 @@ class HConstructor10(nn.Module):
             H[torch.arange(num_nodes), classes] += 1
 
         # 7. 计算超边特征矩阵
-        # 7. 计算超边特征矩阵 —— 行数必须是 n_s（当前超边数），不能用 self.num_classes
         hyperedge_features = torch.zeros(n_s, features.size(1), device=features.device)
         for j in range(n_s):
             nodes_in_hyperedge = (H[:, j] > 0).nonzero(as_tuple=True)[0]
             if len(nodes_in_hyperedge) > 0:
                 hyperedge_features[j] = all_features2[nodes_in_hyperedge].sum(dim=0)
 
+        # cc = H.ceil().abs()
+        # de = cc.sum(dim=0)
+        # empty = (de == 0).sum()
+        # s_level = 1 - empty / n_s
+        #
+        # self.ajust_edges(s_level, args)
+        #
+        # print("Num edges is: {}; Satuation level is: {}".format(self.num_edges, s_level))
         dots = torch.einsum('ni,ij->nj', all_features, hyperedge_features.T) * self.scale
-
-        cc = H.ceil().abs()  # 二值化
-        de = cc.sum(dim=0)  # 每条超边的度
-        empty = (de == 0).sum()
-        s_level = 1 - empty.float() / n_s  # S_H = 1 - |E_empty|/|E|
-
-        self.ajust_edges(s_level.item(), args)
 
         H = H.softmax(dim=0)
         return H, hyperedge_features, dots
@@ -448,34 +407,20 @@ class HConstructor9(nn.Module):
         #     nn.Linear(num_classes, num_classes)
         # )
 
-    def _resize_output_layer(self, new_m):
-        if new_m == self.linear1.out_features:
-            return
-        old = self.linear1
-        in_f = old.in_features
-        out_f = new_m
-        device = next(old.parameters()).device
-        new_linear = nn.Linear(in_f, out_f).to(device)
 
-        # 拷贝重叠部分的权重和偏置
-        keep = min(old.out_features, out_f)
-        with torch.no_grad():
-            new_linear.weight[:keep, :] = old.weight[:keep, :]
-            new_linear.bias[:keep] = old.bias[:keep]
-        self.linear1 = new_linear
+
 
     def ajust_edges(self, s_level, args):
         if args.stage != 'train':
             return
-        new_m = self.num_edges
-        if s_level > args.up_bound:
-            new_m = self.num_edges + 1
-        elif s_level < args.low_bound:
-            new_m = max(self.num_edges - 1, args.min_num_edges)
 
-        if new_m != self.num_edges:
-            self.num_edges = new_m
-            self._resize_output_layer(new_m)
+        if s_level > args.up_bound:
+            self.num_edges = self.num_edges + 1
+        elif s_level < args.low_bound:
+            self.num_edges = self.num_edges - 1
+            self.num_edges = max(self.num_edges, args.min_num_edges)
+        else:
+            return
 
     def forward(self, edge_index, features, args):
         n_s = self.num_edges
@@ -540,12 +485,14 @@ class HConstructor9(nn.Module):
             if len(nodes_in_hyperedge) > 0:
                 hyperedge_features[j] = all_features2[nodes_in_hyperedge].sum(dim=0)
 
-        cc = H.ceil().abs()  # 二值化
-        de = cc.sum(dim=0)  # 每条超边的度
-        empty = (de == 0).sum()
-        s_level = 1 - empty.float() / n_s  # S_H = 1 - |E_empty|/|E|
-
-        self.ajust_edges(s_level.item(), args)
+        # cc = H.ceil().abs()
+        # de = cc.sum(dim=0)
+        # empty = (de == 0).sum()
+        # s_level = 1 - empty / n_s
+        #
+        # self.ajust_edges(s_level, args)
+        #
+        # print("Num edges is: {}; Satuation level is: {}".format(self.num_edges, s_level))
 
         dots = torch.einsum('ni,ij->nj', all_features, hyperedge_features.T) * self.scale
 
@@ -564,8 +511,7 @@ class HGNN_conv(nn.Module):
         #self.HConstructor = HConstructor(num_edges, in_ft)
 
         self.H2 = nn.ModuleList()
-        self.H2.append(HConstructor20(in_ft, in_ft, in_ft, args.k, args.num_edges))
-        #self.H2.append(HConstructor20(in_ft, in_ft, in_ft,15,100))
+        self.H2.append(HConstructor20(in_ft, in_ft, in_ft,15,100))
         self.d_k =out_ft
 
 

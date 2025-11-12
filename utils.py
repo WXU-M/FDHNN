@@ -18,9 +18,9 @@ def setup_seed(seed):
 
 def arg_parse():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='Squirrel', help='Squirrel/Chameleon')
+    parser.add_argument('--dataset', type=str, default='Chameleon', help='40/NTU')
     parser.add_argument('--f_dim', type=int, default=64)
-    parser.add_argument('--seed', type=int, default=777)
+    parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--lrate', type=float, default=0.001)
     parser.add_argument('--wdecay', type=float, default=00)
 
@@ -28,13 +28,13 @@ def arg_parse():
     parser.add_argument('--out_dim', type=int, default=2)
     parser.add_argument('--hid_dim', type=int, default=128)
     parser.add_argument('--num_edges', type=int, default=100)
-    parser.add_argument('--min_num_edges', type=int, default=64)
+    parser.add_argument('--min_num_edges', type=int, default=50)
     parser.add_argument('--num_node', type=int, default=0)
 
-    parser.add_argument('--k', type=int, default=5)
+    parser.add_argument('--k', type=int, default=10)
     parser.add_argument('--cuda', type=str, default='0', help='0/1/2/3')
     parser.add_argument('--drop_rate', type=float, default=0.5)
-    parser.add_argument('--patience', type=int, default=50)
+    parser.add_argument('--patience', type=int, default=100)
     parser.add_argument('--epoch', type=int, default=1000)
     parser.add_argument('--device', type=str, default='cpu')
     parser.add_argument('--model', type=str, default='dhl')
@@ -46,7 +46,8 @@ def arg_parse():
     parser.add_argument('--stage', type=str, default='train', help='train/val')
 
     parser.add_argument('--conv_number', type=int, default=1)
-
+    parser.add_argument('--k_n', type=int, default=10, help='number of nodes to choose')
+    parser.add_argument('--k_e', type=int, default=10, help='number of edges to choose')
 
     parser.add_argument('--low_bound', type=float, default=0.9)
     parser.add_argument('--up_bound', type=float, default=0.95)
@@ -65,7 +66,7 @@ def arg_parse():
     args = parser.parse_args()
 
     args.device = 'cuda:{}'.format(args.cuda) if torch.cuda.is_available() else 'cpu'
-    # args.device = 'cpu'
+    #args.device = 'cpu'
 
     return args
 
@@ -112,8 +113,8 @@ def plot_embedding_2d(X, labels, fname, title=None):
 
     # plt.margins(0.001)
 
-    colors_space = np.linspace(0, 1, num_of_labels)
-    label_to_color = {}
+    colors_space = np.linspace(0, 1, num_of_labels)           # 生成颜色空间
+    label_to_color = {}                                 # 将标签对应为颜色
     for i in range(num_of_labels):
         label_to_color[i] = colors_space[i]
 
@@ -129,7 +130,7 @@ def plot_embedding_2d(X, labels, fname, title=None):
         plt.title(title)
 
     cb=plt.colorbar(sc)
-    cb.ax.tick_params(labelsize=32)
+    cb.ax.tick_params(labelsize=32)  #设置色标刻度字体大小。
     
     plt.tight_layout(rect=(0, 0, 1.06, 1))
 

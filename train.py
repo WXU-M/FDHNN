@@ -117,15 +117,17 @@ def train(model, optimizer, data, args):
         contra_ls = 0
         contra_ls2 = 0
         # if H_raw is not None:
-            # if epoch % 20 == 0 or epoch == args.epoch - 1:
-            #     laplacian_rank(H, args.device)
-
-            # contra_ls = contrast_loss(H_raw,train_mask,labels)
-            # contra_ls2 = contrast_loss2(H, x)
+        #     # if epoch % 20 == 0 or epoch == args.epoch - 1:
+        #     #     laplacian_rank(H, args.device)
+        #
+        #     contra_ls = contrast_loss(H_raw,train_mask,labels)
+        #     contra_ls2 = contrast_loss2(H, x)
 
 
         loss = F.nll_loss(pred[train_mask], labels) + contra_ls * args.namuda + contra_ls2 * (args.namuda2 / 1000)
-        # loss = F.nll_loss(pred[train_mask], labels) + contra_ls * (args.namuda / 100) + contra_ls2 * (args.namuda2 / 10)
+
+        #loss = F.nll_loss(pred[train_mask], labels) + contra_ls * (args.namuda / 100) + contra_ls2 * (args.namuda2 / 10)
+        #loss = F.nll_loss(pred[train_mask], labels) - contra_ls * args.namuda - contra_ls2 * (args.namuda2 / 1000)
         #loss = F.nll_loss(pred[train_mask], labels)
         loss.backward()
         # torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
@@ -146,6 +148,8 @@ def train(model, optimizer, data, args):
             torch.save(model.state_dict(),'model.pth')
             if H is not None:
                 args.num_edges = H[0].shape[1]
+                best_m = int(H[0].shape[1])
+                #print(f"[BEST] epoch={epoch}  acc={best_acc:.4f}  num_edges(m)={m}")
         else:
             patience = patience + 1
 
@@ -157,13 +161,16 @@ def train(model, optimizer, data, args):
         # print("Val acc: {}, loss: {}".format(val_acc,val_loss))
         print("Test acc: {}, loss: {}".format(test_acc,test_loss))
 
+
         # print("Epoch: {}; Loss: {}, acc: {}".format(i,loss,acc))
         print("Time: {} (h:mm:ss)".format(format_time(time.time()-t0)))
-        print(f"Elapsed time for one epoch: {time.time() - t0:.6f} seconds")
+        print(f"Elapsed time for one epoch: {time.time()-t0:.6f} seconds")
         spent_time.append(format_time(time.time()-t0))
         
 
-    print("Best epch: {}, acc: {}".format(best_epoch, best_acc))
+    #print("Best epch: {}, acc: {}".format(best_epoch, best_acc))
+    print(f"[FINAL] chosen num_edges (m) = {best_m}  at epoch={best_epoch}  acc={best_acc:.4f}")
+
     return best_acc
 
 def evaluate(model, data, args):
@@ -172,7 +179,6 @@ def evaluate(model, data, args):
     model.eval()
 
     mask = data['val_idx']
-    #mask = data['test_idx']
     labels = data['lbls'][mask]
 
     out, x, H, H_raw = model(data,args)
@@ -180,13 +186,14 @@ def evaluate(model, data, args):
 
     contra_ls = 0
     contra_ls2 = 0
-    # if H_raw is not None:
-    #     contra_ls = contrast_loss(H_raw,mask,labels)
-    #     contra_ls2 = contrast_loss2(H, x)
+    if H_raw is not None:
+        contra_ls = contrast_loss(H_raw,mask,labels)
+        contra_ls2 = contrast_loss2(H, x)
 
     loss = F.nll_loss(pred[mask], labels) + contra_ls * args.namuda + contra_ls2 * (args.namuda2 / 1000)
     # loss = F.nll_loss(pred[mask], labels) + contra_ls * (args.namuda/100) + contra_ls2 * (args.namuda2 / 10)
-    #loss = F.nll_loss(pred[mask], labels)
+    # loss = F.nll_loss(pred[mask], labels)
+    #loss = F.nll_loss(pred[mask], labels) - contra_ls * args.namuda - contra_ls2 * (args.namuda2 / 1000)
 
     _, pred = pred[mask].max(dim=1)
     correct = int(pred.eq(labels).sum().item())

@@ -3,7 +3,7 @@ import torch
 from numpy import ndarray
 from sklearn.preprocessing import MultiLabelBinarizer, LabelBinarizer
 from torch import LongTensor
-from torch_geometric.datasets import Amazon, Coauthor, CoraFull, WikipediaNetwork
+from torch_geometric.datasets import Planetoid, Amazon, Coauthor, CoraFull, WikipediaNetwork, Actor
 import scipy.io as scio
 import numpy as np
 import torchvision
@@ -14,6 +14,10 @@ import pickle
 import itertools
 import random
 import sys
+
+
+
+
 
 
 
@@ -227,7 +231,54 @@ def get_train_val_test_split(
     return train_indices, val_indices, test_indices
 
 
+def rand_train_test_idx(label, train_prop=.6, valid_prop=.2, ignore_negative=True, balance=False):
+	""" Adapted from https://github.com/CUAI/Non-Homophily-Benchmarks"""
+	""" randomly splits label into train/valid/test splits """
+	if not balance:
+		if ignore_negative:
+			labeled_nodes = torch.where(label != -1)[0]
+		else:
+			labeled_nodes = label
 
+		n = labeled_nodes.shape[0]
+		train_num = int(n * train_prop)
+		valid_num = int(n * valid_prop)
+
+		perm = torch.as_tensor(np.random.permutation(n))
+
+		train_indices = perm[:train_num]
+		val_indices = perm[train_num:train_num + valid_num]
+		test_indices = perm[train_num + valid_num:]
+
+		if not ignore_negative:
+			return train_indices, val_indices, test_indices
+
+		train_idx = labeled_nodes[train_indices]
+		valid_idx = labeled_nodes[val_indices]
+		test_idx = labeled_nodes[test_indices]
+
+		split_idx = {'train': train_idx,
+					 'valid': valid_idx,
+					 'test': test_idx}
+	else:
+		#         ipdb.set_trace()
+		indices = []
+		for i in range(label.max()+1):
+			index = torch.where((label == i))[0].view(-1)
+			index = index[torch.randperm(index.size(0))]
+			indices.append(index)
+
+		percls_trn = int(train_prop/(label.max()+1)*len(label))
+		val_lb = int(valid_prop*len(label))
+		train_idx = torch.cat([i[:percls_trn] for i in indices], dim=0)
+		rest_index = torch.cat([i[percls_trn:] for i in indices], dim=0)
+		rest_index = rest_index[torch.randperm(rest_index.size(0))]
+		valid_idx = rest_index[:val_lb]
+		test_idx = rest_index[val_lb:]
+		split_idx = {'train': train_idx,
+					 'valid': valid_idx,
+					 'test': test_idx}
+	return split_idx
 
 def load_data2(args):
     """
@@ -296,9 +347,28 @@ def load_cite(args):
     # f_path = osp.dirname(d_path)         #当前文件所在目录的父目录
     f_path = osp.join(d_path, ('data'))
 
+    # 根据数据集名称选择对应的数据集类
+    name = dname
 
-    #dataset = Amazon(f_path, dname)
-    dataset = WikipediaNetwork(f_path, dname)
+
+
+    if name in {'Cora', 'Citeseer', 'PubMed'}:
+        dataset = Planetoid(f_path, dname)
+    elif name in {'Photo', 'Computers'}:
+        dataset = Amazon(f_path, dname)
+    elif name in {'Chameleon', 'Squirrel'}:
+        dataset = WikipediaNetwork(f_path, dname)
+    elif name.lower() == 'actor':
+        dataset = Actor(f_path)
+    else:
+        raise ValueError(f"Unsupported dataset: {name}")
+
+    # #dataset = Planetoid(f_path,dname)      #dataset
+    # dataset = Amazon(f_path, dname)
+    # #dataset = WikipediaNetwork(f_path, dname)
+    # #dataset = Actor(f_path, dname)
+
+
 
 
     tmp = dataset[0].to(device)
@@ -389,7 +459,7 @@ def load_ft(args):
     feature_name = args.fts
 
     data = scio.loadmat(data_dir)
-    lbls = data['Y'].astype(np.int64)
+    lbls = data['Y'].astype(np.long)
     if lbls.min() == 1:
         lbls = lbls - 1
     idx = data['indices'].item()
@@ -408,14 +478,16 @@ def load_ft(args):
 
         fts = torch.cat((fts1,fts2),dim=-1)
 
+    if args.split_ratio < 0:
+        train_idx = np.where(idx == 1)[0]
+        test_idx = np.where(idx == 0)[0]
+    else:
+        nums = lbls.shape[0]
+        num_train = int(nums * args.split_ratio)
+        idx_list = [i for i in range(nums)]
 
-
-    nums = lbls.shape[0]
-    num_train = int(nums * args.split_ratio)
-    idx_list = [i for i in range(nums)]
-
-    train_idx = random.sample(idx_list, num_train)
-    test_idx = [i for i in idx_list if i not in train_idx]
+        train_idx = random.sample(idx_list, num_train)
+        test_idx = [i for i in idx_list if i not in train_idx]
 
     # train_idx = np.where(idx == 1)[0]
     # test_idx = np.where(idx == 0)[0]
@@ -436,7 +508,7 @@ def load_ft(args):
 def load_data(args):
     if args.dataset in ['40','NTU']:
         return load_ft(args)
-    elif args.dataset in ['Cora','Citeseer','PubMed','Photo','Computers','Squirrel','Chameleon']:
+    elif args.dataset in ['Cora','Citeseer','PubMed','Photo','Computers','Chameleon','Squirrel','actor']:
         return load_cite(args)
     elif args.dataset in ['MINIST']:
         return load_minist(args)
