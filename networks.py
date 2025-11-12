@@ -564,7 +564,14 @@ class HGNN_conv(nn.Module):
         #self.HConstructor = HConstructor(num_edges, in_ft)
 
         self.H2 = nn.ModuleList()
-        self.H2.append(HConstructor20(in_ft, in_ft, in_ft, args.k, args.num_edges))
+        name = args.dataset
+        if name in {'Cora', 'Citeseer', 'PubMed','Photo', 'Computers'}:
+            self.H2.append(HConstructor9(in_ft, in_ft, in_ft, args.k, args.num_edges))
+        elif name in {'Chameleon', 'Squirrel'}:
+            self.H2.append(HConstructor20(in_ft, in_ft, in_ft, args.k, args.num_edges))
+        else:
+            self.H2.append(HConstructor10(in_ft, in_ft, in_ft, args.k, args.num_edges))
+
         #self.H2.append(HConstructor20(in_ft, in_ft, in_ft,15,100))
         self.d_k =out_ft
 
@@ -671,8 +678,12 @@ class HGNN_conv(nn.Module):
         #x = x + nodes
 
         #x = self.kan(x)
-        #x = x + nodes
-        x =  torch.cat([x+nodes,adj_matrix],dim=1)
+
+        name = args.dataset
+        if name in {'Cora', 'Citeseer', 'PubMed','Photo', 'Computers'}:
+            x = x + nodes
+        elif name in {'Chameleon', 'Squirrel'}:
+            x =  torch.cat([x+nodes,adj_matrix],dim=1)
         return x, H, H_raw
 
 
@@ -709,13 +720,17 @@ class HGNN_classifier(nn.Module):
         self.convs = nn.ModuleList()
         self.transfers = nn.ModuleList()
 
-        for i in range(self.conv_number):
-            self.convs.append(HGNN_conv(hid_dim, hid_dim, num_edges, args))
-            self.transfers.append(nn.Linear(hid_dim*2, hid_dim))
-            #self.transfers.append(KANLinear(hid_dim, hid_dim, "dog"))
+        name = args.dataset
+        if name in {'Chameleon', 'Squirrel'}:
+            for i in range(self.conv_number):
+                self.convs.append(HGNN_conv(hid_dim, hid_dim, num_edges, args))
+                self.transfers.append(nn.Linear(hid_dim * 2, hid_dim))
+        else:
+            for i in range(self.conv_number):
+                self.convs.append(HGNN_conv(hid_dim, hid_dim, num_edges, args))
+                self.transfers.append(nn.Linear(hid_dim, hid_dim))
 
 
-            #self.transfers.append(NaiveFourierKANLayer(hid_dim, hid_dim, 400))
 
         # classifier
         self.classifier = nn.Sequential(
