@@ -459,7 +459,7 @@ def load_ft(args):
     feature_name = args.fts
 
     data = scio.loadmat(data_dir)
-    lbls = data['Y'].astype(np.long)
+    lbls = data['Y'].astype(np.int64)
     if lbls.min() == 1:
         lbls = lbls - 1
     idx = data['indices'].item()

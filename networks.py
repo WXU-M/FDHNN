@@ -158,18 +158,140 @@ class HConstructor20(nn.Module):
         self.ajust_edges(s_level.item(), args)
 
         return H, hyperedge_features, dots
+# class HConstructor10(nn.Module):
+#     def __init__(self, in_features, out_features, num_classes, t, num_edges):
+#         super(HConstructor10, self).__init__()
+#         self.scale = out_features ** -0.5
+#         self.num_edges = num_edges
+#         self.linear = nn.ModuleList([nn.Linear(in_features, out_features) for _ in range(t)])
+#         self.gcn = GCNConv(out_features, num_classes)
+#         self.num_classes = num_classes
+#         self.t = t
+#         self.gcn_backbone = nn.ModuleList()
+#         self.gcn_backbone.append(GCNConv(out_features, num_classes))
+#         self.gcn_backbone.append(GCNConv(num_classes, num_classes))
+#         self.linear1 = nn.Linear(num_classes, self.num_edges)
+#
+#     def _resize_output_layer(self, new_m):
+#         if new_m == self.linear1.out_features:
+#             return
+#         old = self.linear1
+#         in_f = old.in_features
+#         out_f = new_m
+#         device = next(old.parameters()).device
+#         new_linear = nn.Linear(in_f, out_f).to(device)
+#
+#         # 拷贝重叠部分的权重和偏置
+#         keep = min(old.out_features, out_f)
+#         with torch.no_grad():
+#             new_linear.weight[:keep, :] = old.weight[:keep, :]
+#             new_linear.bias[:keep] = old.bias[:keep]
+#         self.linear1 = new_linear
+#
+#     def ajust_edges(self, s_level, args):
+#         if args.stage != 'train':
+#             return
+#         new_m = self.num_edges
+#         if s_level > args.up_bound:
+#             new_m = self.num_edges + 1
+#         elif s_level < args.low_bound:
+#             new_m = max(self.num_edges - 1, args.min_num_edges)
+#
+#         if new_m != self.num_edges:
+#             self.num_edges = new_m
+#             self._resize_output_layer(new_m)
+#
+#     def forward(self, edge_index, features, args):
+#         n_s = self.num_edges
+#         num_nodes = features.size(0)
+#
+#         # 1. 复制节点及其特征
+#         replicated_features = torch.cat([features for _ in range(self.t)], dim=0)
+#
+#         # 2. 线性变换
+#         transformed_features = [self.linear[i](features) for i in range(self.t)]
+#         transformed_features = torch.cat(transformed_features, dim=0)
+#
+#         # 3. 计算相似度并调整边
+#         src_nodes = edge_index[0]
+#         dst_nodes = edge_index[1]
+#
+#         new_edges_list = []
+#         for i in range(self.t):
+#             sim_orig = F.cosine_similarity(transformed_features[src_nodes], features[dst_nodes])
+#             sim_repl = F.cosine_similarity(transformed_features[src_nodes + i * num_nodes], features[dst_nodes])
+#             new_edges = dst_nodes + (i + 1) * num_nodes
+#             mask = sim_repl > sim_orig
+#             edge_index_new = torch.cat([src_nodes.unsqueeze(0), new_edges.unsqueeze(0)], dim=0)[:, mask]
+#             new_edges_list.append(edge_index_new)
+#
+#         edge_index = torch.cat([edge_index] + new_edges_list, dim=1)
+#
+#         # 4. 连接原始节点和复制节点
+#         extra_edges = [torch.stack([torch.arange(num_nodes, device=edge_index.device), torch.arange(num_nodes, device=edge_index.device) + i * num_nodes], dim=0) for i in range(1, self.t + 1)]
+#         extra_edges = torch.cat(extra_edges, dim=1)
+#         edge_index = torch.cat([edge_index, extra_edges], dim=1)
+#
+#         # 5. 使用GCN进行节点分类
+#         all_features = torch.cat([features, replicated_features], dim=0)
+#         #all_features = self.gcn(all_features, edge_index)
+#
+#         all_features2 = F.relu(all_features)
+#         all_features2 = F.dropout(all_features2, training=self.training)
+#
+#         all_features2 = self.gcn_backbone[0](all_features2, edge_index)
+#         all_features2 = F.relu(all_features2)
+#         all_features2 = F.dropout(all_features2, training=self.training)
+#         all_features2 = self.gcn_backbone[1](all_features2, edge_index)
+#
+#         all = F.relu(all_features2)
+#         all = F.dropout(all, training=self.training)
+#         all = self.linear1(all)
+#
+#         # 6. 构造超图和超边邻接矩阵H
+#         # H = torch.zeros(num_nodes, self.num_classes, device=all_features2.device)
+#         H = torch.zeros(num_nodes, n_s, device=all.device)
+#         for i in range(self.t + 1):
+#             classes = all[i * num_nodes:(i + 1) * num_nodes].argmax(dim=1)
+#             H[torch.arange(num_nodes), classes] += 1
+#
+#         # 7. 计算超边特征矩阵
+#         # 7. 计算超边特征矩阵 —— 行数必须是 n_s（当前超边数），不能用 self.num_classes
+#         hyperedge_features = torch.zeros(n_s, features.size(1), device=features.device)
+#         for j in range(n_s):
+#             nodes_in_hyperedge = (H[:, j] > 0).nonzero(as_tuple=True)[0]
+#             if len(nodes_in_hyperedge) > 0:
+#                 hyperedge_features[j] = all_features2[nodes_in_hyperedge].sum(dim=0)
+#
+#         dots = torch.einsum('ni,ij->nj', all_features, hyperedge_features.T) * self.scale
+#
+#         cc = H.ceil().abs()  # 二值化
+#         de = cc.sum(dim=0)  # 每条超边的度
+#         empty = (de == 0).sum()
+#         s_level = 1 - empty.float() / n_s  # S_H = 1 - |E_empty|/|E|
+#
+#         self.ajust_edges(s_level.item(), args)
+#
+#         H = H.softmax(dim=0)
+#         return H, hyperedge_features, dots
+
 class HConstructor10(nn.Module):
     def __init__(self, in_features, out_features, num_classes, t, num_edges):
         super(HConstructor10, self).__init__()
         self.scale = out_features ** -0.5
         self.num_edges = num_edges
-        self.linear = nn.ModuleList([nn.Linear(in_features, out_features) for _ in range(t)])
-        self.gcn = GCNConv(out_features, num_classes)
         self.num_classes = num_classes
         self.t = t
-        self.gcn_backbone = nn.ModuleList()
-        self.gcn_backbone.append(GCNConv(out_features, num_classes))
-        self.gcn_backbone.append(GCNConv(num_classes, num_classes))
+
+        # t 个线性变换
+        self.linear = nn.ModuleList([nn.Linear(in_features, out_features) for _ in range(t)])
+
+        # backbone：仿照你上一份代码，用 MLP 而不是 GCN
+        self.linear_backbone = nn.ModuleList()
+        self.linear_backbone.append(nn.Linear(out_features, num_classes))
+        self.linear_backbone.append(nn.Linear(num_classes, num_classes))
+
+        # 输出到超边的线性层（自适应调整输出维度）
         self.linear1 = nn.Linear(num_classes, self.num_edges)
 
     def _resize_output_layer(self, new_m):
@@ -201,72 +323,57 @@ class HConstructor10(nn.Module):
             self.num_edges = new_m
             self._resize_output_layer(new_m)
 
-    def forward(self, edge_index, features, args):
+    def forward(self, features, args):
+        # 注意：这里不再接收 edge_index，只用 feature
         n_s = self.num_edges
         num_nodes = features.size(0)
 
-        # 1. 复制节点及其特征
+        # 1. 复制节点及其特征（保留这一步，虽然后面主要用 transformed_features）
         replicated_features = torch.cat([features for _ in range(self.t)], dim=0)
 
-        # 2. 线性变换
+        # 2. 线性变换（仿照你第一段代码的写法）
         transformed_features = [self.linear[i](features) for i in range(self.t)]
         transformed_features = torch.cat(transformed_features, dim=0)
 
-        # 3. 计算相似度并调整边
-        src_nodes = edge_index[0]
-        dst_nodes = edge_index[1]
+        # 3. 不再用 edge_index 调整边，只根据特征来做后面的超边表示和相似度
+        #    all_features 直接由原特征和线性变换后的特征拼起来
+        all_features = torch.cat([features, transformed_features], dim=0)
 
-        new_edges_list = []
-        for i in range(self.t):
-            sim_orig = F.cosine_similarity(transformed_features[src_nodes], features[dst_nodes])
-            sim_repl = F.cosine_similarity(transformed_features[src_nodes + i * num_nodes], features[dst_nodes])
-            new_edges = dst_nodes + (i + 1) * num_nodes
-            mask = sim_repl > sim_orig
-            edge_index_new = torch.cat([src_nodes.unsqueeze(0), new_edges.unsqueeze(0)], dim=0)[:, mask]
-            new_edges_list.append(edge_index_new)
-
-        edge_index = torch.cat([edge_index] + new_edges_list, dim=1)
-
-        # 4. 连接原始节点和复制节点
-        extra_edges = [torch.stack([torch.arange(num_nodes, device=edge_index.device), torch.arange(num_nodes, device=edge_index.device) + i * num_nodes], dim=0) for i in range(1, self.t + 1)]
-        extra_edges = torch.cat(extra_edges, dim=1)
-        edge_index = torch.cat([edge_index, extra_edges], dim=1)
-
-        # 5. 使用GCN进行节点分类
-        all_features = torch.cat([features, replicated_features], dim=0)
-        #all_features = self.gcn(all_features, edge_index)
-
+        # 4. backbone（MLP）提取用于分配超边的表示
         all_features2 = F.relu(all_features)
         all_features2 = F.dropout(all_features2, training=self.training)
 
-        all_features2 = self.gcn_backbone[0](all_features2, edge_index)
+        all_features2 = self.linear_backbone[0](all_features2)
         all_features2 = F.relu(all_features2)
         all_features2 = F.dropout(all_features2, training=self.training)
-        all_features2 = self.gcn_backbone[1](all_features2, edge_index)
+        all_features2 = self.linear_backbone[1](all_features2)
 
+        # 5. 通过 linear1 输出对每条超边的“logit”
         all = F.relu(all_features2)
         all = F.dropout(all, training=self.training)
-        all = self.linear1(all)
+        all = self.linear1(all)  # 维度：( (t+1)*num_nodes, n_s )
 
-        # 6. 构造超图和超边邻接矩阵H
-        # H = torch.zeros(num_nodes, self.num_classes, device=all_features2.device)
-        H = torch.zeros(num_nodes, n_s, device=all.device)
+        # 6. 构造超图和超边邻接矩阵 H (num_nodes × n_s)
+        device = all.device
+        H = torch.zeros(num_nodes, n_s, device=device)
         for i in range(self.t + 1):
             classes = all[i * num_nodes:(i + 1) * num_nodes].argmax(dim=1)
-            H[torch.arange(num_nodes), classes] += 1
+            H[torch.arange(num_nodes, device=device), classes] += 1
 
-        # 7. 计算超边特征矩阵
-        # 7. 计算超边特征矩阵 —— 行数必须是 n_s（当前超边数），不能用 self.num_classes
+        # 7. 计算超边特征矩阵 —— 行数是当前超边数 n_s
         hyperedge_features = torch.zeros(n_s, features.size(1), device=features.device)
         for j in range(n_s):
             nodes_in_hyperedge = (H[:, j] > 0).nonzero(as_tuple=True)[0]
             if len(nodes_in_hyperedge) > 0:
                 hyperedge_features[j] = all_features2[nodes_in_hyperedge].sum(dim=0)
 
+        # 8. 使用特征做相似度（节点–超边间的点积相似度）
+        #    只依赖 all_features 和 hyperedge_features，不用 edge_index
         dots = torch.einsum('ni,ij->nj', all_features, hyperedge_features.T) * self.scale
 
-        cc = H.ceil().abs()  # 二值化
-        de = cc.sum(dim=0)  # 每条超边的度
+        # 9. 计算饱和度，做自适应超边数调整（保留你的原始逻辑）
+        cc = H.ceil().abs()        # 二值化
+        de = cc.sum(dim=0)         # 每条超边的度
         empty = (de == 0).sum()
         s_level = 1 - empty.float() / n_s  # S_H = 1 - |E_empty|/|E|
 
@@ -274,6 +381,8 @@ class HConstructor10(nn.Module):
 
         H = H.softmax(dim=0)
         return H, hyperedge_features, dots
+
+
 class NaiveFourierKANLayer(nn.Module):
     def __init__(self, inputdim, outdim, gridsize=300, addbias=True):
         super(NaiveFourierKANLayer, self).__init__()
@@ -686,6 +795,57 @@ class HGNN_conv(nn.Module):
             x =  torch.cat([x+nodes,adj_matrix],dim=1)
         return x, H, H_raw
 
+class HGNN_conv_noedge(nn.Module):
+    def __init__(self, in_ft, out_ft, num_edges, args, bias=True):
+        super(HGNN_conv_noedge, self).__init__()
+
+        #self.HConstructor = HConstructor(num_edges, in_ft)
+
+        self.H2 = nn.ModuleList()
+
+        self.H2.append(HConstructor10(in_ft, in_ft, in_ft, args.k, args.num_edges))
+
+
+        self.weight = Parameter(torch.Tensor(in_ft, out_ft))
+        if bias:
+            self.bias = Parameter(torch.Tensor(out_ft))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+        self.mlp = nn.ModuleList()
+        self.mlp.append(nn.Linear(in_ft, out_ft))
+        self.mlp.append(nn.Linear(out_ft, out_ft))
+        #self.mlp.append(KANLinear(in_ft, out_ft, "dog"))
+        #self.mlp.append(KANLinear(out_ft, out_ft, "dog"))
+
+        self.kan = KANLinear(in_ft, out_ft, "dog")
+
+
+    def reset_parameters(self):
+        stdv = 1. / math.sqrt(self.weight.size(1))
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.bias is not None:
+            self.bias.data.uniform_(-stdv, stdv)
+
+    # def forward(self,edge_index, x, args):
+    def forward(self, x, args):
+        numnode = x.shape[0]
+
+        # H, edges, H_raw = self.H2[0](edge_index, x, args)
+        H, edges, H_raw = self.H2[0](x, args)
+        #H_raw = edges
+        #H = H[0:numnode,:]+H[numnode:,:]
+        #H_raw = H_raw[0:numnode, :] + H_raw[numnode:, :]
+        #H,edges = self.H2[0](edge_index, x)
+        #edges = edges.matmul(self.weight)
+        edges = self.kan(edges)
+        if self.bias is not None:
+            edges = edges + self.bias
+        nodes = H.matmul(edges)
+        #x = self.mlp[0](x) + self.mlp[1](nodes)
+        x = x + nodes
+        return x, H, H_raw
 
 
 
@@ -725,6 +885,11 @@ class HGNN_classifier(nn.Module):
             for i in range(self.conv_number):
                 self.convs.append(HGNN_conv(hid_dim, hid_dim, num_edges, args))
                 self.transfers.append(nn.Linear(hid_dim * 2, hid_dim))
+        elif name in {'40','NTU'}:
+            for i in range(self.conv_number):
+
+                self.convs.append(HGNN_conv_noedge(hid_dim, hid_dim, num_edges,args))
+                self.transfers.append(nn.Linear(hid_dim, hid_dim))
         else:
             for i in range(self.conv_number):
                 self.convs.append(HGNN_conv(hid_dim, hid_dim, num_edges, args))
@@ -767,11 +932,13 @@ class HGNN_classifier(nn.Module):
 
         for i in range(self.conv_number):
             #x = self.H2[0](data['edge_index'], data['fts'])
+            if args.dataset == "40" or args.dataset == "NTU":
+                x, h, h_raw = self.convs[i](x, args)
+            else:
+                x, h, h_raw = self.convs[i](data['edge_index'], x, args)
 
-
-
-            x1, h, h_raw = self.convs[i](data['edge_index'],x,args)
-            x1 = F.relu(x1)
+            #x1, h, h_raw = self.convs[i](data['edge_index'],x,args)
+            x1 = F.relu(x)
             x1 = F.dropout(x1, training=self.training)
             if args.transfer == 1:
                 x1 = self.transfers[i](x1)
