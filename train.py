@@ -178,7 +178,13 @@ def evaluate(model, data, args):
 
     model.eval()
 
-    mask = data['val_idx']
+    name = args.dataset
+
+
+    if name in {'40', 'NTU'}:
+        mask = data['test_idx']
+    else:
+        mask = data['val_idx']
     labels = data['lbls'][mask]
 
     out, x, H, H_raw = model(data,args)
