@@ -15,8 +15,8 @@
 
 #For graph datasets: 'Cora', 'Citeseer', 'PubMed', 'Photo', 'Computers','Chameleon', 'Squirrel'
 
-python main.py --dataset 'Cora' --model 'dhl' --backbone 'gcn'
+python main.py --dataset 'Cora' --model 'dhl' --backbone 'gcn' --split_ratio -1
 
 #For visual object dataset: '40','NTU'
 
-python main.py --dataset '40' --model 'dhl' --backbone 'linear'
+python main.py --dataset '40' --model 'dhl' --backbone 'linear' --split_ratio 0.8
