@@ -1,4 +1,6 @@
 # FDHNN
+<img width="10690" height="4351" alt="FDHNN" src="https://github.com/user-attachments/assets/d3544c83-503b-4664-8510-27a7773fce5c" />
+
 #python 3.8  
 
 #numpy 1.24.4
